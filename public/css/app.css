@@ -1,0 +1,11 @@
+.product-image {
+    width: 75px; /* Moderate size */
+    height: 75px;
+    object-fit: cover;
+    border-radius: 5px; /* Adds a slight curve for better aesthetics */
+}
+
+.table th, .table td {
+    vertical-align: middle; /* Align vertically */
+    text-align: center; /* Align horizontally */
+}

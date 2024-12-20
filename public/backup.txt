@@ -1,0 +1,1806 @@
+ProductController: <?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Product;
+use Illuminate\Http\Request;
+
+class ProductController extends Controller
+{
+    public function index(Request $request)
+    {
+        $search = $request->get('search');
+        $products = Product::where('product_name', 'like', '%' . $search . '%')
+                            ->orWhere('description', 'like', '%' . $search . '%')
+                            ->paginate(10);
+
+        return view('products.index', compact('products'));
+    }
+
+    public function create()
+    {
+        return view('products.create');
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'product_name' => 'required|min:3|unique:products',
+            'description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'stock' => 'required|integer|min:0',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'discount' => 'nullable|integer|min:0|max:50'
+        ]);
+
+        $price = $request->price;
+        $discount = $request->discount;
+        $discountedPrice = $discount > 0 ? $price - ($price * ($discount / 100)) : $price;
+
+       
+        $imageName = $request->hasFile('image') 
+            ? time() . '.' . $request->image->extension()
+            : null;
+
+        if ($request->hasFile('image')) {
+            $request->image->move(public_path('images'), $imageName);
+        }
+
+       
+        Product::create([
+            'product_name' => $request->product_name,
+            'description' => $request->description,
+            'price' => $price,
+            'discounted_price' => $discountedPrice, 
+            'stock' => $request->stock,
+            'image' => $imageName,
+            'discount' => $discount
+        ]);
+
+        return redirect()->route('products.index')->with('success', 'Product created successfully.');
+    }
+
+    public function edit(Product $product)
+    {
+        return view('products.edit', compact('product'));
+    }
+
+    public function update(Request $request, Product $product)
+    {
+        $request->validate([
+            'product_name' => 'required|min:3|unique:products,product_name,' . $product->id,
+            'description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'stock' => 'required|integer|min:0',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'discount' => 'nullable|integer|min:0|max:50'
+        ]);
+
+       
+        $price = $request->price;
+        $discount = $request->discount;
+        $discountedPrice = $discount > 0 ? $price - ($price * ($discount / 100)) : $price;
+
+       
+        if ($request->hasFile('image')) {
+            if ($product->image) {
+                unlink(public_path('images/' . $product->image));
+            }
+
+            $imageName = time() . '.' . $request->image->extension();
+            $request->image->move(public_path('images'), $imageName);
+            $product->image = $imageName;
+        }
+
+     
+        $product->update([
+            'product_name' => $request->product_name,
+            'description' => $request->description,
+            'price' => $price,
+            'discounted_price' => $discountedPrice, 
+            'stock' => $request->stock,
+            'discount' => $discount
+            
+        ]);
+
+        return redirect()->route('products.index')->with('success', 'Product updated successfully.');
+    }
+
+    public function destroy(Product $product)
+    {
+        if ($product->image) {
+            unlink(public_path('images/' . $product->image));
+        }
+
+        $product->delete();
+
+        return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
+    }
+
+  
+public function buy(Product $product)
+{
+    if ($product->stock > 0) {
+      
+        $product->decrement('stock', 1);
+
+        return redirect()->route('products.index')->with('success', 'Product purchased successfully!');
+    }
+
+    return redirect()->route('products.index')->with('error', 'Sorry, this product is out of stock.');
+}
+
+}  
+
+index.blade: @extends('layouts.app')
+
+@section('title', 'Products List')
+
+@section('content')
+
+<div class="d-flex justify-content-center align-items-start" style="min-height: 90vh;">
+    <div class="card w-100">
+        <div class="card-header">
+            <h3>📖༄</h3>
+        </div>
+        <div class="card-body">
+          
+            @if (session('success'))
+                <div class="alert alert-success" id="successMessage">
+                    {{ session('success') }}
+                </div>
+            @endif
+            @if (session('error'))
+                <div class="alert alert-danger">
+                    {{ session('error') }}
+                </div>
+            @endif
+
+           
+            <form action="{{ route('products.index') }}" method="GET" class="mb-3">
+                <div class="input-group" style="max-width: 300px; margin: 0 auto;">
+                    <input type="text" name="search" class="form-control form-control-sm" placeholder="Search Products" value="{{ request('search') }}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+            </form>
+
+
+            <a href="{{ route('products.create') }}" class="btn btn-success mb-3">Add New Product</a>
+
+        
+            <table class="table table-striped text-center align-middle">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Image</th>
+                        <th>Title</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($products as $product)
+                    <tr>
+                        <td>{{ $loop->iteration }}</td>
+                        <td>
+                            @if ($product->image)
+                                <img src="{{ asset('images/' . $product->image) }}" 
+                                     alt="{{ $product->product_name }}" 
+                                     class="img-fluid product-image">
+                            @else
+                                <img src="https://via.placeholder.com/150x150" 
+                                     alt="No Image" 
+                                     class="img-fluid product-image">
+                            @endif
+                        </td>
+                        <td>{{ $product->product_name }}</td>
+                        <td>
+                            @if ($product->discount)
+                               
+                                <span class="text-muted text-decoration-line-through">${{ number_format($product->price, 2) }}</span>
+                                <br>
+                           
+                                <span class="text-success">${{ number_format($product->price * (1 - $product->discount / 100), 2) }} ({{ $product->discount }}% off)</span>
+                            @else
+                               
+                                ${{ number_format($product->price, 2) }}
+                            @endif
+                        </td>
+                        <td>{{ $product->stock }}</td>
+                        <td>
+                            <div class="btn-group" role="group" aria-label="Product Actions">
+                              
+                                @if($product->stock > 0)
+                                    <form action="{{ route('products.buy', $product) }}" method="POST" style="display:inline-block;">
+                                        @csrf
+                                        <button type="submit" class="btn btn-success btn-sm mx-2">
+                                            <i class="bi bi-cart"></i> Buy
+                                        </button>
+                                    </form>
+                                @else
+                                    <button type="button" class="btn btn-secondary btn-sm mx-2" onclick="showOutOfStockModal()">
+                                        <i class="bi bi-cart"></i> Out of Stock
+                                    </button>
+                                @endif
+
+                                <a href="{{ route('products.edit', $product) }}" class="btn btn-warning btn-sm mx-2">
+                                    <i class="bi bi-brush"></i> Edit
+                                </a>
+
+                                
+                                <button type="button" class="btn btn-danger btn-sm mx-2" onclick="showDeleteModal('{{ route('products.destroy', $product) }}')">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+
+
+            {{ $products->links() }}
+        </div>
+    </div>
+</div>
+
+
+<div class="modal" id="deleteModal" tabindex="-1" role="dialog" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">Confirm Deletion</h5>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete this product?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideDeleteModal()">Cancel</button>
+                <form id="deleteForm" method="POST" action="" style="display:inline;">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="outOfStockModal" tabindex="-1" role="dialog" aria-labelledby="outOfStockModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="outOfStockModalLabel">Out of Stock</h5>
+            </div>
+            <div class="modal-body">
+                Sorry, this product is currently out of stock.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideOutOfStockModal()">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<style>
+    .product-image {
+        width: 75px; 
+        height: 75px;
+        object-fit: cover;
+        border-radius: 5px; 
+    }
+    .table th, .table td {
+        vertical-align: middle; 
+        text-align: center; 
+    }
+
+   
+    .modal-backdrop {
+        background-color: rgba(0, 0, 0, 0.5) !important; 
+    }
+
+    .modal {
+        display: none; 
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        justify-content: center;
+        align-items: center;
+        backdrop-filter: blur(8px); 
+    }
+
+    .modal-content {
+        border-radius: 10px;
+        width: 90%; 
+        max-width: 1200px; 
+    }
+
+    .modal.show {
+        display: flex; 
+    }
+
+    .modal-header {
+        font-size: 1.25rem;
+    }
+
+    .modal-body {
+        font-size: 1.1rem;
+    }
+</style>
+
+
+<script>
+   
+    function showDeleteModal(actionUrl) {
+       
+        document.getElementById('deleteForm').action = actionUrl;
+        
+       
+        document.getElementById('deleteModal').classList.add('show');
+    }
+
+    
+    function hideDeleteModal() {
+        document.getElementById('deleteModal').classList.remove('show');
+    }
+
+   
+    window.onload = function() {
+        var successMessage = document.getElementById('successMessage');
+        if (successMessage) {
+            setTimeout(function() {
+                successMessage.style.transition = 'opacity 1s ease-out';
+                successMessage.style.opacity = 0;
+            }, 3000); 
+        }
+    };
+
+
+    function showOutOfStockModal() {
+        document.getElementById('outOfStockModal').classList.add('show');
+    }
+
+   
+    function hideOutOfStockModal() {
+        document.getElementById('outOfStockModal').classList.remove('show');
+    }
+</script>
+
+@endsection 
+
+create.blade: @extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <h1>Create Product</h1>
+    
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul>
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    <form action="{{ route('products.store') }}" method="POST" enctype="multipart/form-data">
+        @csrf
+        <div class="mb-3">
+            <label for="product_name" class="form-label">Product Name</label>
+            <input type="text" class="form-control" name="product_name" value="{{ old('product_name') }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" name="description">{{ old('description') }}</textarea>
+        </div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" step="0.01" class="form-control" name="price" value="{{ old('price') }}" required id="price">
+        </div>
+        <div class="mb-3">
+            <label for="discount" class="form-label">Discount Percentage</label>
+            <select id="discount" name="discount" class="form-control">
+                <option value="0">No Discount</option>
+                <option value="10" {{ old('discount') == 10 ? 'selected' : '' }}>10%</option>
+                <option value="20" {{ old('discount') == 20 ? 'selected' : '' }}>20%</option>
+                <option value="30" {{ old('discount') == 30 ? 'selected' : '' }}>30%</option>
+                <option value="50" {{ old('discount') == 50 ? 'selected' : '' }}>50%</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="discounted_price" class="form-label">Discounted Price</label>
+            <input type="text" id="discounted_price" class="form-control" value="{{ old('discounted_price') }}" readonly>
+        </div>
+        <div class="mb-3">
+            <label for="stock" class="form-label">Stock</label>
+            <input type="number" class="form-control" name="stock" value="{{ old('stock') }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="image" class="form-label">Product Image</label>
+            <input type="file" class="form-control" name="image">
+        </div>
+        <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+</div>
+
+
+<script>
+
+    function calculateDiscount() {
+        let price = parseFloat(document.getElementById('price').value);
+        let discount = parseFloat(document.getElementById('discount').value);
+        if (!isNaN(price) && !isNaN(discount)) {
+            let discountedPrice = price - (price * (discount / 100));
+            document.getElementById('discounted_price').value = discountedPrice.toFixed(2);
+        } else {
+            document.getElementById('discounted_price').value = '';
+        }
+    }
+
+  
+    document.getElementById('price').addEventListener('input', calculateDiscount);
+    document.getElementById('discount').addEventListener('change', calculateDiscount);
+
+   
+    window.onload = function() {
+        calculateDiscount();
+    };
+</script>
+@endsection
+
+edit.blade: @extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <h1>Edit Product</h1>
+    
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul>
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+    
+    <form action="{{ route('products.update', $product->id) }}" method="POST" enctype="multipart/form-data">
+        @csrf
+        @method('PUT')
+        
+        <div class="mb-3">
+            <label for="product_name" class="form-label">Product Name</label>
+            <input type="text" class="form-control" name="product_name" value="{{ old('product_name', $product->product_name) }}" required>
+        </div>
+        
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" name="description">{{ old('description', $product->description) }}</textarea>
+        </div>
+        
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" step="0.01" class="form-control" name="price" value="{{ old('price', $product->price) }}" required id="price">
+        </div>
+        
+        <div class="mb-3">
+            <label for="discount" class="form-label">Discount Percentage</label>
+            <select id="discount" name="discount" class="form-control">
+                <option value="0" {{ old('discount', $product->discount) == 0 ? 'selected' : '' }}>No Discount</option>
+                <option value="10" {{ old('discount', $product->discount) == 10 ? 'selected' : '' }}>10%</option>
+                <option value="20" {{ old('discount', $product->discount) == 20 ? 'selected' : '' }}>20%</option>
+                <option value="30" {{ old('discount', $product->discount) == 30 ? 'selected' : '' }}>30%</option>
+                <option value="50" {{ old('discount', $product->discount) == 50 ? 'selected' : '' }}>50%</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="discounted_price" class="form-label">Discounted Price</label>
+            <input type="text" id="discounted_price" class="form-control" value="{{ old('discounted_price', $product->discounted_price) }}" readonly>
+        </div>
+
+        <div class="mb-3">
+            <label for="stock" class="form-label">Stock</label>
+            <input type="number" class="form-control" name="stock" value="{{ old('stock', $product->stock) }}" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="image" class="form-label">Product Image</label>
+            <input type="file" class="form-control" name="image">
+            @if ($product->image)
+                <div>
+                    <p>Current Image:</p>
+                    <img src="{{ asset('images/' . $product->image) }}" alt="Product Image" width="100">
+                </div>
+            @endif
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Update</button>
+    </form>
+</div>
+
+
+<script>
+ 
+    function calculateDiscount() {
+        let price = parseFloat(document.getElementById('price').value);
+        let discount = parseFloat(document.getElementById('discount').value);
+        if (!isNaN(price) && !isNaN(discount)) {
+            let discountedPrice = price - (price * (discount / 100));
+            document.getElementById('discounted_price').value = discountedPrice.toFixed(2);
+        } else {
+            document.getElementById('discounted_price').value = '';
+        }
+    }
+
+   
+    document.getElementById('price').addEventListener('input', calculateDiscount);
+    document.getElementById('discount').addEventListener('change', calculateDiscount);
+
+    
+    window.onload = function() {
+        calculateDiscount();
+    };
+</script>
+@endsection
+
+2nd phase 
+
+ProductController: <?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Product;
+use Illuminate\Http\Request;
+
+class ProductController extends Controller
+{
+
+    public function index(Request $request)
+    {
+        $search = $request->get('search');
+        $genre = $request->get('genre');
+    
+        $products = Product::when($search, function ($query, $search) {
+                            return $query->where('product_name', 'like', '%' . $search . '%')
+                                         ->orWhere('description', 'like', '%' . $search . '%');
+                        })
+                        ->when($genre, function ($query, $genre) {
+                            return $query->where('genre', $genre);
+                        })
+                        ->paginate(10);
+    
+        return view('products.index', compact('products'));
+    }
+    
+    public function create()
+    {
+        return view('products.create');
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'product_name' => 'required|min:3|unique:products',
+            'description' => 'nullable|string',
+            'genre' => 'required|string',
+            'price' => 'required|numeric|min:0',
+            'stock' => 'required|integer|min:0',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'discount' => 'nullable|integer|min:0|max:50'
+        ]);
+
+        $price = $request->price;
+        $discount = $request->discount;
+        $discountedPrice = $discount > 0 ? $price - ($price * ($discount / 100)) : $price;
+
+       
+        $imageName = $request->hasFile('image') 
+            ? time() . '.' . $request->image->extension()
+            : null;
+
+        if ($request->hasFile('image')) {
+            $request->image->move(public_path('images'), $imageName);
+        }
+
+       
+        Product::create([
+            'product_name' => $request->product_name,
+            'description' => $request->description,
+            'genre' => $request->genre,
+            'price' => $price,
+            'discounted_price' => $discountedPrice, 
+            'stock' => $request->stock,
+            'image' => $imageName,
+            'discount' => $discount
+        ]);
+
+        return redirect()->route('products.index')->with('success', 'Product created successfully.');
+    }
+
+    public function edit(Product $product)
+    {
+        return view('products.edit', compact('product'));
+    }
+
+    public function update(Request $request, Product $product)
+    {
+        $request->validate([
+            'product_name' => 'required|min:3|unique:products,product_name,' . $product->id,
+            'description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'stock' => 'required|integer|min:0',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'discount' => 'nullable|integer|min:0|max:50'
+        ]);
+
+       
+        $price = $request->price;
+        $discount = $request->discount;
+        $discountedPrice = $discount > 0 ? $price - ($price * ($discount / 100)) : $price;
+
+       
+        if ($request->hasFile('image')) {
+            if ($product->image) {
+                unlink(public_path('images/' . $product->image));
+            }
+
+            $imageName = time() . '.' . $request->image->extension();
+            $request->image->move(public_path('images'), $imageName);
+            $product->image = $imageName;
+        }
+
+     
+        $product->update([
+            'product_name' => $request->product_name,
+            'description' => $request->description,
+            'genre' => 'required|string',
+            'price' => $price,
+            'discounted_price' => $discountedPrice, 
+            'stock' => $request->stock,
+            'discount' => $discount
+            
+        ]);
+
+        return redirect()->route('products.index')->with('success', 'Product updated successfully.');
+    }
+
+    public function destroy(Product $product)
+    {
+        if ($product->image) {
+            unlink(public_path('images/' . $product->image));
+        }
+
+        $product->delete();
+
+        return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
+    }
+
+  
+public function buy(Product $product)
+{
+    if ($product->stock > 0) {
+      
+        $product->decrement('stock', 1);
+
+        return redirect()->route('products.index')->with('success', 'Product purchased successfully!');
+    }
+
+    return redirect()->route('products.index')->with('error', 'Sorry, this product is out of stock.');
+}
+
+}   
+
+index.blade: @extends('layouts.app')
+
+@section('title', 'Products List')
+
+@section('content')
+
+<div class="d-flex justify-content-center align-items-start" style="min-height: 90vh;">
+    <div class="card w-100">
+    <div class="card-header bg-light">
+    <div class="card-header bg-light">
+    <h3 class="d-flex align-items-center gap-2" style="font-size: 1.5rem; font-weight: bold; color: #444;">
+        <span>📖༄</span>
+        <div class="d-flex flex-wrap gap-2 flex-grow-1">
+            <a href="{{ route('products.index') }}" class="btn btn-sm btn-outline-primary flex-fill text-center">All</a>
+            <a href="{{ route('products.index', ['genre' => 'Sci-Fi']) }}" class="btn btn-sm btn-outline-success flex-fill text-center">Sci-Fi</a>
+            <a href="{{ route('products.index', ['genre' => 'Romance']) }}" class="btn btn-sm btn-outline-danger flex-fill text-center">Romance</a>
+            <a href="{{ route('products.index', ['genre' => 'Horror']) }}" class="btn btn-sm btn-outline-dark flex-fill text-center">Horror</a>
+            <a href="{{ route('products.index', ['genre' => 'Comedy']) }}" class="btn btn-sm btn-outline-warning flex-fill text-center">Comedy</a>
+            <a href="{{ route('products.index', ['genre' => 'Fantasy']) }}" class="btn btn-sm btn-outline-info flex-fill text-center">Fantasy</a>
+            <a href="{{ route('products.index', ['genre' => 'Action']) }}" class="btn btn-sm btn-outline-secondary flex-fill text-center">Action</a>
+        </div>
+    </h3>
+    </div>
+    </div>
+
+        <div class="card-body">
+            @if (session('success'))
+                <div class="alert alert-success" id="successMessage">
+                    {{ session('success') }}
+                </div>
+            @endif
+            @if (session('error'))
+                <div class="alert alert-danger">
+                    {{ session('error') }}
+                </div>
+            @endif
+
+           
+            <form action="{{ route('products.index') }}" method="GET" class="mb-3">
+                <div class="input-group" style="max-width: 300px; margin: 0 auto;">
+                    <input type="text" name="search" class="form-control form-control-sm" placeholder="Search Products" value="{{ request('search') }}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+            </form>
+
+
+            <a href="{{ route('products.create') }}" class="btn btn-success mb-3">Add New Product</a>
+
+        
+            <table class="table table-striped text-center align-middle">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Image</th>
+                        <th>Title</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($products as $product)
+                    <tr>
+                        <td>{{ $loop->iteration }}</td>
+                        <td>
+                            @if ($product->image)
+                                <img src="{{ asset('images/' . $product->image) }}" 
+                                     alt="{{ $product->product_name }}" 
+                                     class="img-fluid product-image">
+                            @else
+                                <img src="https://via.placeholder.com/150x150" 
+                                     alt="No Image" 
+                                     class="img-fluid product-image">
+                            @endif
+                        </td>
+                        <td>{{ $product->product_name }}</td>
+                        <td>
+                            @if ($product->discount)
+                               
+                                <span class="text-muted text-decoration-line-through">${{ number_format($product->price, 2) }}</span>
+                                <br>
+                           
+                                <span class="text-success">${{ number_format($product->price * (1 - $product->discount / 100), 2) }} ({{ $product->discount }}% off)</span>
+                            @else
+                               
+                                ${{ number_format($product->price, 2) }}
+                            @endif
+                        </td>
+                        <td>{{ $product->stock }}</td>
+                        <td>
+                            <div class="btn-group" role="group" aria-label="Product Actions">
+                              
+                                @if($product->stock > 0)
+                                    <form action="{{ route('products.buy', $product) }}" method="POST" style="display:inline-block;">
+                                        @csrf
+                                        <button type="submit" class="btn btn-success btn-sm mx-2">
+                                            <i class="bi bi-cart"></i> Buy
+                                        </button>
+                                    </form>
+                                @else
+                                    <button type="button" class="btn btn-secondary btn-sm mx-2" onclick="showOutOfStockModal()">
+                                        <i class="bi bi-cart"></i> Out of Stock
+                                    </button>
+                                @endif
+
+                                <a href="{{ route('products.edit', $product) }}" class="btn btn-warning btn-sm mx-2">
+                                    <i class="bi bi-brush"></i> Edit
+                                </a>
+
+                                
+                                <button type="button" class="btn btn-danger btn-sm mx-2" onclick="showDeleteModal('{{ route('products.destroy', $product) }}')">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+
+
+            {{ $products->links() }}
+        </div>
+    </div>
+</div>
+
+
+<div class="modal" id="deleteModal" tabindex="-1" role="dialog" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">Confirm Deletion</h5>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete this product?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideDeleteModal()">Cancel</button>
+                <form id="deleteForm" method="POST" action="" style="display:inline;">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="outOfStockModal" tabindex="-1" role="dialog" aria-labelledby="outOfStockModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="outOfStockModalLabel">Out of Stock</h5>
+            </div>
+            <div class="modal-body">
+                Sorry, this product is currently out of stock.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideOutOfStockModal()">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<style>
+    .product-image {
+        width: 75px; 
+        height: 75px;
+        object-fit: cover;
+        border-radius: 5px; 
+    }
+    .table th, .table td {
+        vertical-align: middle; 
+        text-align: center; 
+    }
+
+   
+    .modal-backdrop {
+        background-color: rgba(0, 0, 0, 0.5) !important; 
+    }
+
+    .modal {
+        display: none; 
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        justify-content: center;
+        align-items: center;
+        backdrop-filter: blur(8px); 
+    }
+
+    .modal-content {
+        border-radius: 10px;
+        width: 90%; 
+        max-width: 1200px; 
+    }
+
+    .modal.show {
+        display: flex; 
+    }
+
+    .modal-header {
+        font-size: 1.25rem;
+    }
+
+    .modal-body {
+        font-size: 1.1rem;
+    }
+</style>
+
+
+<script>
+   
+    function showDeleteModal(actionUrl) {
+       
+        document.getElementById('deleteForm').action = actionUrl;
+        
+       
+        document.getElementById('deleteModal').classList.add('show');
+    }
+
+    
+    function hideDeleteModal() {
+        document.getElementById('deleteModal').classList.remove('show');
+    }
+
+   
+    window.onload = function() {
+        var successMessage = document.getElementById('successMessage');
+        if (successMessage) {
+            setTimeout(function() {
+                successMessage.style.transition = 'opacity 1s ease-out';
+                successMessage.style.opacity = 0;
+            }, 3000); 
+        }
+    };
+
+
+    function showOutOfStockModal() {
+        document.getElementById('outOfStockModal').classList.add('show');
+    }
+
+   
+    function hideOutOfStockModal() {
+        document.getElementById('outOfStockModal').classList.remove('show');
+    }
+</script>
+
+@endsection 
+
+create.blade: @extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <h1>Create Product</h1>
+    
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul>
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    <form action="{{ route('products.store') }}" method="POST" enctype="multipart/form-data">
+        @csrf
+        <div class="mb-3">
+            <label for="product_name" class="form-label">Product Name</label>
+            <input type="text" class="form-control" name="product_name" value="{{ old('product_name') }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" name="description">{{ old('description') }}</textarea>
+        </div>
+        <div class="mb-3">
+    <label for="genre" class="form-label">Genre</label>
+    <select name="genre" id="genre" class="form-control">
+        <option value="Sci-Fi">Sci-Fi</option>
+        <option value="Romance">Romance</option>
+        <option value="Horror">Horror</option>
+        <option value="Comedy">Comedy</option>
+        <option value="Fantasy">Fantasy</option>
+        <option value="Action">Action</option>
+    </select>
+</div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" step="0.01" class="form-control" name="price" value="{{ old('price') }}" required id="price">
+        </div>
+        <div class="mb-3">
+            <label for="discount" class="form-label">Discount Percentage</label>
+            <select id="discount" name="discount" class="form-control">
+                <option value="0">No Discount</option>
+                <option value="10" {{ old('discount') == 10 ? 'selected' : '' }}>10%</option>
+                <option value="20" {{ old('discount') == 20 ? 'selected' : '' }}>20%</option>
+                <option value="30" {{ old('discount') == 30 ? 'selected' : '' }}>30%</option>
+                <option value="50" {{ old('discount') == 50 ? 'selected' : '' }}>50%</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="discounted_price" class="form-label">Discounted Price</label>
+            <input type="text" id="discounted_price" class="form-control" value="{{ old('discounted_price') }}" readonly>
+        </div>
+        <div class="mb-3">
+            <label for="stock" class="form-label">Stock</label>
+            <input type="number" class="form-control" name="stock" value="{{ old('stock') }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="image" class="form-label">Product Image</label>
+            <input type="file" class="form-control" name="image">
+        </div>
+        <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+</div>
+
+
+<script>
+
+    function calculateDiscount() {
+        let price = parseFloat(document.getElementById('price').value);
+        let discount = parseFloat(document.getElementById('discount').value);
+        if (!isNaN(price) && !isNaN(discount)) {
+            let discountedPrice = price - (price * (discount / 100));
+            document.getElementById('discounted_price').value = discountedPrice.toFixed(2);
+        } else {
+            document.getElementById('discounted_price').value = '';
+        }
+    }
+
+  
+    document.getElementById('price').addEventListener('input', calculateDiscount);
+    document.getElementById('discount').addEventListener('change', calculateDiscount);
+
+   
+    window.onload = function() {
+        calculateDiscount();
+    };
+</script>
+@endsection
+
+edit.blade: @extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <h1>Edit Product</h1>
+    
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul>
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+    
+    <form action="{{ route('products.update', $product->id) }}" method="POST" enctype="multipart/form-data">
+        @csrf
+        @method('PUT')
+        
+        <div class="mb-3">
+            <label for="product_name" class="form-label">Product Name</label>
+            <input type="text" class="form-control" name="product_name" value="{{ old('product_name', $product->product_name) }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" name="description">{{ old('description', $product->description) }}</textarea>
+        </div>
+        <div class="mb-3">
+    <label for="genre" class="form-label">Genre</label>
+    <select name="genre" id="genre" class="form-control">
+        <option value="Sci-Fi" {{ $product->genre == 'Sci-Fi' ? 'selected' : '' }}>Sci-Fi</option>
+        <option value="Romance" {{ $product->genre == 'Romance' ? 'selected' : '' }}>Romance</option>
+        <option value="Horror" {{ $product->genre == 'Horror' ? 'selected' : '' }}>Horror</option>
+        <option value="Comedy" {{ $product->genre == 'Comedy' ? 'selected' : '' }}>Comedy</option>
+        <option value="Fantasy" {{ $product->genre == 'Fantasy' ? 'selected' : '' }}>Fantasy</option>
+        <option value="Action" {{ $product->genre == 'Action' ? 'selected' : '' }}>Action</option>
+    </select>
+</div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" step="0.01" class="form-control" name="price" value="{{ old('price', $product->price) }}" required id="price">
+        </div>
+        
+        <div class="mb-3">
+            <label for="discount" class="form-label">Discount Percentage</label>
+            <select id="discount" name="discount" class="form-control">
+                <option value="0" {{ old('discount', $product->discount) == 0 ? 'selected' : '' }}>No Discount</option>
+                <option value="10" {{ old('discount', $product->discount) == 10 ? 'selected' : '' }}>10%</option>
+                <option value="20" {{ old('discount', $product->discount) == 20 ? 'selected' : '' }}>20%</option>
+                <option value="30" {{ old('discount', $product->discount) == 30 ? 'selected' : '' }}>30%</option>
+                <option value="50" {{ old('discount', $product->discount) == 50 ? 'selected' : '' }}>50%</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="discounted_price" class="form-label">Discounted Price</label>
+            <input type="text" id="discounted_price" class="form-control" value="{{ old('discounted_price', $product->discounted_price) }}" readonly>
+        </div>
+
+        <div class="mb-3">
+            <label for="stock" class="form-label">Stock</label>
+            <input type="number" class="form-control" name="stock" value="{{ old('stock', $product->stock) }}" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="image" class="form-label">Product Image</label>
+            <input type="file" class="form-control" name="image">
+            @if ($product->image)
+                <div>
+                    <p>Current Image:</p>
+                    <img src="{{ asset('images/' . $product->image) }}" alt="Product Image" width="100">
+                </div>
+            @endif
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Update</button>
+    </form>
+</div>
+
+
+<script>
+ 
+    function calculateDiscount() {
+        let price = parseFloat(document.getElementById('price').value);
+        let discount = parseFloat(document.getElementById('discount').value);
+        if (!isNaN(price) && !isNaN(discount)) {
+            let discountedPrice = price - (price * (discount / 100));
+            document.getElementById('discounted_price').value = discountedPrice.toFixed(2);
+        } else {
+            document.getElementById('discounted_price').value = '';
+        }
+    }
+
+   
+    document.getElementById('price').addEventListener('input', calculateDiscount);
+    document.getElementById('discount').addEventListener('change', calculateDiscount);
+
+    
+    window.onload = function() {
+        calculateDiscount();
+    };
+</script>
+@endsection
+
+phase 3
+
+ProductController: <?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Product;
+use Illuminate\Http\Request;
+
+class ProductController extends Controller
+{
+
+    public function index(Request $request)
+    {
+        $search = $request->get('search');
+        $genre = $request->get('genre');
+    
+        $products = Product::when($search, function ($query, $search) {
+                            return $query->where('product_name', 'like', '%' . $search . '%')
+                                         ->orWhere('description', 'like', '%' . $search . '%');
+                        })
+                        ->when($genre, function ($query, $genre) {
+                            return $query->where('genre', $genre);
+                        })
+                        ->paginate(10);
+    
+        return view('products.index', compact('products'));
+    }
+    
+    public function create()
+    {
+        return view('products.create');
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'product_name' => 'required|min:3|unique:products',
+            'description' => 'nullable|string',
+            'genre' => 'required|string',
+            'price' => 'required|numeric|min:0',
+            'stock' => 'required|integer|min:0',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'discount' => 'nullable|integer|min:0|max:50'
+        ]);
+
+        $price = $request->price;
+        $discount = $request->discount;
+        $discountedPrice = $discount > 0 ? $price - ($price * ($discount / 100)) : $price;
+
+       
+        $imageName = $request->hasFile('image') 
+            ? time() . '.' . $request->image->extension()
+            : null;
+
+        if ($request->hasFile('image')) {
+            $request->image->move(public_path('images'), $imageName);
+        }
+
+       
+        Product::create([
+            'product_name' => $request->product_name,
+            'description' => $request->description,
+            'genre' => $request->genre,
+            'price' => $price,
+            'discounted_price' => $discountedPrice, 
+            'stock' => $request->stock,
+            'image' => $imageName,
+            'discount' => $discount
+        ]);
+
+        return redirect()->route('products.index')->with('success', 'Product created successfully.');
+    }
+
+    public function edit(Product $product)
+    {
+        return view('products.edit', compact('product'));
+    }
+
+    public function update(Request $request, Product $product)
+    {
+        $request->validate([
+            'product_name' => 'required|min:3|unique:products,product_name,' . $product->id,
+            'description' => 'nullable|string',
+            'genre' => 'required|string',
+            'price' => 'required|numeric|min:0',
+            'stock' => 'required|integer|min:0',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'discount' => 'nullable|integer|min:0|max:50'
+        ]);
+
+       
+        $price = $request->price;
+        $discount = $request->discount;
+        $discountedPrice = $discount > 0 ? $price - ($price * ($discount / 100)) : $price;
+
+       
+        if ($request->hasFile('image')) {
+            if ($product->image) {
+                unlink(public_path('images/' . $product->image));
+            }
+
+            $imageName = time() . '.' . $request->image->extension();
+            $request->image->move(public_path('images'), $imageName);
+            $product->image = $imageName;
+        }
+
+     
+        $product->update([
+            'product_name' => $request->product_name,
+            'description' => $request->description,
+            'genre' => 'required|string',
+            'price' => $price,
+            'discounted_price' => $discountedPrice, 
+            'stock' => $request->stock,
+            'discount' => $discount
+            
+        ]);
+
+        return redirect()->route('products.index')->with('success', 'Product updated successfully.');
+    }
+
+    public function destroy(Product $product)
+    {
+        if ($product->image) {
+            unlink(public_path('images/' . $product->image));
+        }
+
+        $product->delete();
+
+        return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
+    }
+
+  
+public function buy(Product $product)
+{
+    if ($product->stock > 0) {
+      
+        $product->decrement('stock', 1);
+
+        return redirect()->route('products.index')->with('success', 'Product purchased successfully!');
+    }
+
+    return redirect()->route('products.index')->with('error', 'Sorry, this product is out of stock.');
+}
+
+}   
+
+indexblade: @extends('layouts.app')
+
+@section('title', 'Products List')
+
+@section('content')
+
+<div class="d-flex justify-content-center align-items-start" style="min-height: 90vh;">
+    <div class="card w-100">
+        <div class="card-header bg-light">
+            <div class="card-header bg-light">
+                <h3 class="d-flex align-items-center gap-2" style="font-size: 1.5rem; font-weight: bold; color: #444;">
+                    <span>📖༄</span>
+                    <div class="d-flex flex-wrap gap-2 flex-grow-1">
+                        <a href="{{ route('products.index') }}" class="btn btn-sm btn-outline-primary flex-fill text-center">All</a>
+                        <a href="{{ route('products.index', ['genre' => 'Sci-Fi']) }}" class="btn btn-sm btn-outline-success flex-fill text-center">Sci-Fi</a>
+                        <a href="{{ route('products.index', ['genre' => 'Romance']) }}" class="btn btn-sm btn-outline-danger flex-fill text-center">Romance</a>
+                        <a href="{{ route('products.index', ['genre' => 'Horror']) }}" class="btn btn-sm btn-outline-dark flex-fill text-center">Horror</a>
+                        <a href="{{ route('products.index', ['genre' => 'Comedy']) }}" class="btn btn-sm btn-outline-warning flex-fill text-center">Comedy</a>
+                        <a href="{{ route('products.index', ['genre' => 'Fantasy']) }}" class="btn btn-sm btn-outline-info flex-fill text-center">Fantasy</a>
+                        <a href="{{ route('products.index', ['genre' => 'Action']) }}" class="btn btn-sm btn-outline-secondary flex-fill text-center">Action</a>
+                    </div>
+                </h3>
+            </div>
+        </div>
+
+        <div class="card-body">
+            @if (session('success'))
+                <div class="alert alert-success" id="successMessage">
+                    {{ session('success') }}
+                </div>
+            @endif
+            @if (session('error'))
+                <div class="alert alert-danger">
+                    {{ session('error') }}
+                </div>
+            @endif
+
+            <form action="{{ route('products.index') }}" method="GET" class="mb-3">
+                <div class="input-group" style="max-width: 300px; margin: 0 auto;">
+                    <input type="text" name="search" class="form-control form-control-sm" placeholder="Search Products" value="{{ request('search') }}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+            </form>
+
+            <a href="{{ route('products.create') }}" class="btn btn-success mb-3">Add New Product</a>
+
+            <table class="table table-striped text-center align-middle">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Image</th>
+                        <th>Title</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach($products as $product)
+    <tr>
+        <td>{{ $loop->iteration }}</td>
+        <td>
+            @if ($product->image)
+                <img src="{{ asset('images/' . $product->image) }}" 
+                     alt="{{ $product->product_name }}" 
+                     class="img-fluid product-image">
+            @else
+                <img src="https://via.placeholder.com/150x150" 
+                     alt="No Image" 
+                     class="img-fluid product-image">
+            @endif
+        </td>
+        <td>
+            <a href="javascript:void(0)" class="product-title" onclick="showProductDetails(
+                '{{ $product->product_name }}', 
+                '{{ $product->description }}', 
+                {{ $product->price }},
+                '{{ asset('images/' . $product->image) }}', 
+                {{ $product->discount ? $product->discount : 0 }}
+            )">
+                {{ $product->product_name }}
+            </a>
+        </td>
+        <td>
+            @if ($product->discount)
+                <span class="text-muted text-decoration-line-through">${{ number_format($product->price, 2) }}</span>
+                <br>
+                <span class="text-success">${{ number_format($product->price * (1 - $product->discount / 100), 2) }} ({{ $product->discount }}% off)</span>
+            @else
+                ${{ number_format($product->price, 2) }}
+            @endif
+        </td>
+        <td>{{ $product->stock }}</td>
+        <td>
+            <div class="btn-group" role="group" aria-label="Product Actions">
+                @if($product->stock > 0)
+                    <form action="{{ route('products.buy', $product) }}" method="POST" style="display:inline-block;">
+                        @csrf
+                        <button type="submit" class="btn btn-success btn-sm mx-2">
+                            <i class="bi bi-cart"></i> Buy
+                        </button>
+                    </form>
+                @else
+                    <button type="button" class="btn btn-secondary btn-sm mx-2" onclick="showOutOfStockModal()">
+                        <i class="bi bi-cart"></i> Out of Stock
+                    </button>
+                @endif
+
+                <a href="{{ route('products.edit', $product) }}" class="btn btn-warning btn-sm mx-2">
+                    <i class="bi bi-brush"></i> Edit
+                </a>
+
+                <button type="button" class="btn btn-danger btn-sm mx-2" onclick="showDeleteModal('{{ route('products.destroy', $product) }}')">
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+            </div>
+        </td>
+    </tr>
+@endforeach
+                </tbody>
+            </table>
+
+            {{ $products->links() }}
+        </div>
+    </div>
+</div>
+
+<!-- Product Details Modal -->
+<div class="modal" id="productDetailsModal" tabindex="-1" role="dialog" aria-labelledby="productDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="productDetailsModalLabel">Product Details</h5>
+            </div>
+            <div class="modal-body d-flex align-items-center justify-content-center">
+                <div class="d-flex">
+                    <!-- Product Image -->
+                    <img id="productImage" src="" alt="Product Image" class="img-fluid" style="width: 200px; height: 200px; object-fit: cover; margin-right: 20px;">
+                    <div>
+                        <!-- Product Info -->
+                        <h5 id="productTitle"></h5>
+                        <p id="productDescription"></p>
+                        <p id="productPrice"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideProductDetailsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Delete Modal -->
+<div class="modal" id="deleteModal" tabindex="-1" role="dialog" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">Confirm Deletion</h5>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete this product?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideDeleteModal()">Cancel</button>
+                <form id="deleteForm" method="POST" action="" style="display:inline;">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Out of Stock Modal -->
+<div class="modal" id="outOfStockModal" tabindex="-1" role="dialog" aria-labelledby="outOfStockModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="outOfStockModalLabel">Out of Stock</h5>
+            </div>
+            <div class="modal-body">
+                Sorry, this product is currently out of stock.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="hideOutOfStockModal()">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .product-image {
+        width: 75px; 
+        height: 75px;
+        object-fit: cover;
+        border-radius: 5px; 
+    }
+
+    .table th, .table td {
+        vertical-align: middle; 
+        text-align: center; 
+    }
+
+    .modal-backdrop {
+        background-color: rgba(0, 0, 0, 0.5) !important; 
+    }
+
+    .modal {
+        display: none; 
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        justify-content: center;
+        align-items: center;
+        backdrop-filter: blur(8px); 
+    }
+
+    .modal-content {
+        border-radius: 10px;
+        width: 90%; 
+        max-width: 1200px; 
+    }
+
+    .modal.show {
+        display: flex; 
+    }
+
+    .modal-header {
+        font-size: 1.25rem;
+    }
+
+    .modal-body {
+        font-size: 1.1rem;
+    }
+
+    .product-title {
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .product-title:hover {
+        cursor: pointer;
+    }
+</style>
+
+<script>
+    function showProductDetails(title, description, price, imageUrl, discount) {
+        document.getElementById('productTitle').textContent = title;
+        document.getElementById('productDescription').textContent = description;
+        document.getElementById('productPrice').textContent = '$' + price;
+
+        if (discount) {
+        const discountedPrice = price * (1 - discount / 100);
+        document.getElementById('productPrice').innerHTML = 
+            `<span style="text-decoration: line-through;">$${price.toFixed(2)}</span> 
+            <br><span style="color: green;">$${discountedPrice.toFixed(2)} (${discount}% off)</span>`;
+
+    } else {
+        document.getElementById('productPrice').textContent = `$${price.toFixed(2)}`;
+    }
+
+        document.getElementById('productImage').src = imageUrl;
+        document.getElementById('productDetailsModal').classList.add('show');
+    }
+
+    function hideProductDetailsModal() {
+        document.getElementById('productDetailsModal').classList.remove('show');
+    }
+
+    function showDeleteModal(actionUrl) {
+        document.getElementById('deleteForm').action = actionUrl;
+        document.getElementById('deleteModal').classList.add('show');
+    }
+
+    function hideDeleteModal() {
+        document.getElementById('deleteModal').classList.remove('show');
+    }
+
+    window.onload = function() {
+        var successMessage = document.getElementById('successMessage');
+        if (successMessage) {
+            setTimeout(function() {
+                successMessage.style.transition = 'opacity 1s ease-out';
+                successMessage.style.opacity = 0;
+            }, 3000); 
+        }
+    };
+
+    function showOutOfStockModal() {
+        document.getElementById('outOfStockModal').classList.add('show');
+    }
+
+    function hideOutOfStockModal() {
+        document.getElementById('outOfStockModal').classList.remove('show');
+    }
+</script>
+
+@endsection
+
+createblade: @extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <h1>Create Product</h1>
+    
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul>
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    <form action="{{ route('products.store') }}" method="POST" enctype="multipart/form-data">
+        @csrf
+        <div class="mb-3">
+            <label for="product_name" class="form-label">Product Name</label>
+            <input type="text" class="form-control" name="product_name" value="{{ old('product_name') }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" name="description">{{ old('description') }}</textarea>
+        </div>
+        <div class="mb-3">
+    <label for="genre" class="form-label">Genre</label>
+    <select name="genre" id="genre" class="form-control">
+        <option value="Sci-Fi">Sci-Fi</option>
+        <option value="Romance">Romance</option>
+        <option value="Horror">Horror</option>
+        <option value="Comedy">Comedy</option>
+        <option value="Fantasy">Fantasy</option>
+        <option value="Action">Action</option>
+    </select>
+</div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" step="0.01" class="form-control" name="price" value="{{ old('price') }}" required id="price">
+        </div>
+        <div class="mb-3">
+            <label for="discount" class="form-label">Discount Percentage</label>
+            <select id="discount" name="discount" class="form-control">
+                <option value="0">No Discount</option>
+                <option value="10" {{ old('discount') == 10 ? 'selected' : '' }}>10%</option>
+                <option value="20" {{ old('discount') == 20 ? 'selected' : '' }}>20%</option>
+                <option value="30" {{ old('discount') == 30 ? 'selected' : '' }}>30%</option>
+                <option value="50" {{ old('discount') == 50 ? 'selected' : '' }}>50%</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="discounted_price" class="form-label">Discounted Price</label>
+            <input type="text" id="discounted_price" class="form-control" value="{{ old('discounted_price') }}" readonly>
+        </div>
+        <div class="mb-3">
+            <label for="stock" class="form-label">Stock</label>
+            <input type="number" class="form-control" name="stock" value="{{ old('stock') }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="image" class="form-label">Product Image</label>
+            <input type="file" class="form-control" name="image">
+        </div>
+        <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+</div>
+
+
+<script>
+
+    function calculateDiscount() {
+        let price = parseFloat(document.getElementById('price').value);
+        let discount = parseFloat(document.getElementById('discount').value);
+        if (!isNaN(price) && !isNaN(discount)) {
+            let discountedPrice = price - (price * (discount / 100));
+            document.getElementById('discounted_price').value = discountedPrice.toFixed(2);
+        } else {
+            document.getElementById('discounted_price').value = '';
+        }
+    }
+
+  
+    document.getElementById('price').addEventListener('input', calculateDiscount);
+    document.getElementById('discount').addEventListener('change', calculateDiscount);
+
+   
+    window.onload = function() {
+        calculateDiscount();
+    };
+</script>
+@endsection
+
+edit.blade: @extends('layouts.app')
+
+@section('content')
+<div class="container">
+    <h1>Edit Product</h1>
+    
+    @if ($errors->any())
+        <div class="alert alert-danger">
+            <ul>
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+    
+    <form action="{{ route('products.update', $product->id) }}" method="POST" enctype="multipart/form-data">
+        @csrf
+        @method('PUT')
+        
+        <div class="mb-3">
+            <label for="product_name" class="form-label">Product Name</label>
+            <input type="text" class="form-control" name="product_name" value="{{ old('product_name', $product->product_name) }}" required>
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" name="description">{{ old('description', $product->description) }}</textarea>
+        </div>
+        <div class="mb-3">
+    <label for="genre" class="form-label">Genre</label>
+    <select name="genre" id="genre" class="form-control">
+        <option value="Sci-Fi" {{ $product->genre == 'Sci-Fi' ? 'selected' : '' }}>Sci-Fi</option>
+        <option value="Romance" {{ $product->genre == 'Romance' ? 'selected' : '' }}>Romance</option>
+        <option value="Horror" {{ $product->genre == 'Horror' ? 'selected' : '' }}>Horror</option>
+        <option value="Comedy" {{ $product->genre == 'Comedy' ? 'selected' : '' }}>Comedy</option>
+        <option value="Fantasy" {{ $product->genre == 'Fantasy' ? 'selected' : '' }}>Fantasy</option>
+        <option value="Action" {{ $product->genre == 'Action' ? 'selected' : '' }}>Action</option>
+    </select>
+</div>
+        <div class="mb-3">
+            <label for="price" class="form-label">Price</label>
+            <input type="number" step="0.01" class="form-control" name="price" value="{{ old('price', $product->price) }}" required id="price">
+        </div>
+        
+        <div class="mb-3">
+            <label for="discount" class="form-label">Discount Percentage</label>
+            <select id="discount" name="discount" class="form-control">
+                <option value="0" {{ old('discount', $product->discount) == 0 ? 'selected' : '' }}>No Discount</option>
+                <option value="10" {{ old('discount', $product->discount) == 10 ? 'selected' : '' }}>10%</option>
+                <option value="20" {{ old('discount', $product->discount) == 20 ? 'selected' : '' }}>20%</option>
+                <option value="30" {{ old('discount', $product->discount) == 30 ? 'selected' : '' }}>30%</option>
+                <option value="50" {{ old('discount', $product->discount) == 50 ? 'selected' : '' }}>50%</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="discounted_price" class="form-label">Discounted Price</label>
+            <input type="text" id="discounted_price" class="form-control" value="{{ old('discounted_price', $product->discounted_price) }}" readonly>
+        </div>
+
+        <div class="mb-3">
+            <label for="stock" class="form-label">Stock</label>
+            <input type="number" class="form-control" name="stock" value="{{ old('stock', $product->stock) }}" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="image" class="form-label">Product Image</label>
+            <input type="file" class="form-control" name="image">
+            @if ($product->image)
+                <div>
+                    <p>Current Image:</p>
+                    <img src="{{ asset('images/' . $product->image) }}" alt="Product Image" width="100">
+                </div>
+            @endif
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Update</button>
+    </form>
+</div>
+
+
+<script>
+ 
+    function calculateDiscount() {
+        let price = parseFloat(document.getElementById('price').value);
+        let discount = parseFloat(document.getElementById('discount').value);
+        if (!isNaN(price) && !isNaN(discount)) {
+            let discountedPrice = price - (price * (discount / 100));
+            document.getElementById('discounted_price').value = discountedPrice.toFixed(2);
+        } else {
+            document.getElementById('discounted_price').value = '';
+        }
+    }
+
+   
+    document.getElementById('price').addEventListener('input', calculateDiscount);
+    document.getElementById('discount').addEventListener('change', calculateDiscount);
+
+    
+    window.onload = function() {
+        calculateDiscount();
+    };
+</script>
+@endsection
+
